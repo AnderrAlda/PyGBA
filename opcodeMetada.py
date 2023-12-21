@@ -1,6 +1,8 @@
 import json
+import struct
 from dataclasses import dataclass
 from typing import Literal
+from collections import namedtuple
 
 @dataclass(frozen=True)
 class Operand:
@@ -32,53 +34,62 @@ def generate_human_readable(instruction: Instruction):
         print(f"Operands: {operands}")
     print()  # Add an empty line for clarity between opcodes
 
+# Cartridge Metadata Fields
+FIELDS = [
+    (None, "="),  # "Native" endian.
+    # ... (other fields as described in the explanation)
+]
+
+# Constants for Cartridge Header
+HEADER_START = 0x100
+HEADER_END = 0x14F
+HEADER_SIZE = (HEADER_END - HEADER_START) + 1
+
+# Cartridge Header Format String
+CARTRIDGE_HEADER = "".join(format_type for _, format_type in FIELDS)
+
+# Cartridge Metadata namedtuple
+CartridgeMetadata = namedtuple(
+    "CartridgeMetadata",
+    [field_name for field_name, _ in FIELDS if field_name is not None],
+)
+
+
+def read_cartridge_metadata(buffer, offset: int = 0x100):
+    """
+    Unpacks the cartridge metadata from `buffer` at `offset` and
+    returns a `CartridgeMetadata` object.
+    """
+    data = struct.unpack_from(CARTRIDGE_HEADER, buffer, offset=offset)
+    return CartridgeMetadata._make(data)
+
+
 def main():
-    # Load the opcode data from the JSON file
+    # Load the opcode data from the JSON file (from the emulator)
     with open('Opcodes.json', 'r') as file:
         opcode_data = json.load(file)
 
-    # Prompt user to select 'unprefixed' or 'cbprefixed'
-    section = input("Enter 'unprefixed' or 'cbprefixed': ").strip().lower()
+    # Prompt user for cartridge metadata file
+    cartridge_file = input("Enter the cartridge file path: ").strip()
 
-    if section in opcode_data:
-        # Extract selected section details
-        selected_section = opcode_data[section]
+    # Read cartridge metadata
+    try:
+        with open(cartridge_file, 'rb') as f:
+            cartridge_data = f.read()
+            metadata = read_cartridge_metadata(cartridge_data)
 
-        # Prompt user for opcode within the selected section
-        opcode_choice = input(f"Enter the opcode within '{section}': ").strip().lower()
+            # Display cartridge metadata
+            print("Cartridge Metadata:")
+            for field_name, value in zip(metadata._fields, metadata):
+                print(f"{field_name}: {value}")
 
-        if opcode_choice in selected_section:
-            # Extract data for the selected opcode
-            opcode_details = selected_section[opcode_choice]
+            # Display human-readable details for the selected opcode (from the emulator)
+            # ... (call to generate_human_readable or other relevant display)
+    except FileNotFoundError:
+        print("File not found. Please provide a valid file path.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
-            # Create Operand instances
-            operands = []
-            for operand_data in opcode_details['operands']:
-                operand = Operand(
-                    immediate=operand_data['immediate'],
-                    name=operand_data['name'],
-                    bytes=operand_data.get('bytes', 0),  # Set default value if 'bytes' is missing
-                    value=operand_data.get('value'),
-                    adjust=operand_data.get('adjust'),
-                )
-                operands.append(operand)
-
-            # Create Instruction instance
-            instruction = Instruction(
-                opcode=int(opcode_choice, 16),  # Assuming opcodes are in hexadecimal
-                immediate=opcode_details['immediate'],
-                operands=operands,
-                cycles=opcode_details['cycles'],
-                bytes=opcode_details['bytes'],
-                mnemonic=opcode_details['mnemonic'],
-            )
-
-            # Display human-readable details for the selected opcode
-            generate_human_readable(instruction)
-        else:
-            print("Opcode not found in the selected section.")
-    else:
-        print("Invalid section selected. Please choose 'unprefixed' or 'cbprefixed'.")
 
 if __name__ == "__main__":
     main()
